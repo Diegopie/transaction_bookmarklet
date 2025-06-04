@@ -14,7 +14,7 @@
     "LA PUENTE": "La Puente",
     "Prime Video": "Amazon Prime Video",
     "MEGAPLEX": "Megaplex Theaters",
-    "TACOS LOS ANGELES": "Tacos Los Angeles"
+    "BEANS & BREWS": "Bean",
     // Add more mappings as needed
   };
 
@@ -34,7 +34,7 @@
     "HOT DOG": "Food",
     "TACOS": "Food",
     "Roundup": "Savings",
-    "SLCC": "Education"
+    "BEANS & BREWS": "Coffee",
     // Add more mappings as needed
   };
 
