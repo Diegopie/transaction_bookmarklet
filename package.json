@@ -1,0 +1,21 @@
+{
+  "name": "bank-transaction-bookmarklet",
+  "version": "1.0.0",
+  "description": "A JavaScript bookmarklet that extracts transaction data from bank statement pages and converts it to CSV format",
+  "main": "build/bookmarklet.min.js",
+  "scripts": {
+    "build": "node build/build.js"
+  },
+  "keywords": [
+    "bookmarklet",
+    "bank",
+    "transactions",
+    "csv"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "uglify-js": "^3.17.4"
+  }
+}
+
