@@ -70,7 +70,8 @@
     const transactions = [];
     
     // Get all tables in the transactions section
-    const tables = document.querySelectorAll('.transactions table.sc-gcUDKN');
+    // Using a more robust selector that doesn't rely on generated class names
+    const tables = document.querySelectorAll('.transactions table');
     
     // Iterate through each table
     tables.forEach(table => {
