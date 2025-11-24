@@ -69,28 +69,34 @@
   function extractTransactions() {
     const transactions = [];
     
-    // Get all tables in the transactions section
-    // Using a more robust selector that doesn't rely on generated class names
-    const tables = document.querySelectorAll('.transactions table');
+    // New structure uses role="group" divs for sections
+    const groups = document.querySelectorAll('div[role="list"] > div[role="group"]');
     
-    // Iterate through each table
-    tables.forEach(table => {
-      // Get the table heading text to identify the table type
-      const tableHeadingElement = table.previousElementSibling;
-      if (!tableHeadingElement) return; // Skip if no heading found
+    // Iterate through each group
+    groups.forEach(group => {
+      // Get the heading to identify the group type
+      const headingElement = group.querySelector('div:first-child');
+      if (!headingElement) return;
       
-      const tableHeading = tableHeadingElement.textContent.trim();
+      const heading = headingElement.textContent.trim();
       
       // Skip "Scheduled" transactions as per requirements
-      if (tableHeading === "Scheduled") return;
+      if (heading === "Scheduled") return;
       
-      // Check if this is the "Pending" table
-      const isPendingTable = tableHeading === "Pending";
+      // Check if this is the "Pending" group
+      const isPendingGroup = heading === "Pending";
       
-      // Process all rows in the table
-      const rows = table.querySelectorAll('tbody tr');
-      rows.forEach(row => {
-        const transaction = extractRowData(row, isPendingTable);
+      // Extract the date from the heading if it's a date group (e.g., "November 22, 2025")
+      let groupDate = null;
+      if (!isPendingGroup && heading !== "Scheduled") {
+        // Try to parse as a date
+        groupDate = heading;
+      }
+      
+      // Process all list items in the group
+      const items = group.querySelectorAll('div[role="listitem"]');
+      items.forEach(item => {
+        const transaction = extractItemData(item, isPendingGroup, groupDate);
         if (transaction) {
           transactions.push(transaction);
         }
@@ -100,39 +106,79 @@
     return transactions;
   }
   
-  // Extract data from a single table row
-  function extractRowData(row, isPendingTable) {
+  // Extract data from a single list item
+  function extractItemData(item, isPendingGroup, groupDate) {
     try {
-      // Extract date
-      const dateCell = row.querySelector('.col0');
-      let dateText = "";
+      // The transaction details are likely in the button element
+      const button = item.querySelector('button');
+      if (!button) return null;
       
-      // Get the visible date text or the hidden one
-      const visibleDateSpan = dateCell.querySelector('span:not(.visually-hidden)');
-      const hiddenDateSpan = dateCell.querySelector('span.visually-hidden');
+      // Extract all text content from the button to parse
+      const buttonText = button.textContent || button.innerText || "";
       
-      if (visibleDateSpan && visibleDateSpan.textContent.trim() !== "") {
-        dateText = visibleDateSpan.textContent.trim();
-      } else if (hiddenDateSpan) {
-        dateText = hiddenDateSpan.textContent.trim();
+      // Try to find description - look for text that isn't a date or amount
+      // This will need to be flexible based on the actual structure
+      let description = "";
+      let dateText = groupDate || "";
+      let amountText = "";
+      
+      // Try multiple strategies to extract data from the button
+      // Strategy 1: Look for specific elements within the button
+      const descElements = button.querySelectorAll('div, span, p');
+      let amountCount = 0;
+      
+      descElements.forEach(el => {
+        const text = el.textContent.trim();
+        
+        // Check if this looks like an amount (starts with $ or - or contains decimal)
+        if (/^[-$+]?\$?[\d,]+\.\d{2}$/.test(text) || /^-\$[\d,]+\.\d{2}$/.test(text) || /^\+\$[\d,]+\.\d{2}$/.test(text)) {
+          amountCount++;
+          // Only capture the FIRST amount (transaction amount)
+          // The second amount is always the account balance, so skip it
+          if (amountCount === 1 && !amountText) {
+            amountText = text;
+          }
+        }
+        // If it's not an amount and we don't have a description yet, it might be the description
+        else if (text && text.length > 2 && !description) {
+          // Avoid capturing dates and "balance" labels
+          if (!/^[A-Z][a-z]{2,8}\s+\d{1,2}(,\s+\d{4})?$/.test(text) && 
+              !text.toLowerCase().includes('balance')) {
+            description = text;
+          }
+        }
+      });
+      
+      // Strategy 2: If we didn't find structured elements, parse the button text
+      if (!description && !amountText) {
+        // Split by lines or common separators
+        const lines = buttonText.split('\n').map(l => l.trim()).filter(l => l);
+        
+        for (let line of lines) {
+          // Check if line looks like an amount
+          if (/\$[\d,]+\.\d{2}/.test(line)) {
+            amountText = line.match(/[-$]?\$?[\d,]+\.\d{2}/)?.[0] || "";
+          }
+          // Otherwise might be description
+          else if (line.length > 2 && !description) {
+            description = line;
+          }
+        }
       }
       
-      // Extract description
-      const descriptionCell = row.querySelector('.col1.sr-mask span');
-      const description = descriptionCell ? descriptionCell.textContent.trim() : "";
-      
-      // Extract amount
-      const amountCell = row.querySelector('.col4 span');
-      const amountText = amountCell ? amountCell.textContent.trim() : "";
+      // If we still don't have required data, return null
+      if (!description && !amountText) {
+        return null;
+      }
       
       return {
         date: dateText,
         description: description,
         amount: amountText,
-        isPending: isPendingTable
+        isPending: isPendingGroup
       };
     } catch (error) {
-      console.error("Error extracting row data:", error);
+      console.error("Error extracting item data:", error);
       return null;
     }
   }
@@ -194,6 +240,23 @@
   // Format date to M/D/YYYY
   function formatDate(dateString) {
     // Handle different date formats that might be in the HTML
+    
+    // Format: "November 22, 2025" -> "11/22/2025"
+    if (/^[A-Za-z]+\s+\d{1,2},\s+\d{4}$/.test(dateString)) {
+      const parts = dateString.split(' ');
+      const monthName = parts[0];
+      const day = parts[1].replace(',', '');
+      const year = parts[2];
+      
+      // Convert month name to month number
+      const monthNames = ["January", "February", "March", "April", "May", "June",
+                          "July", "August", "September", "October", "November", "December"];
+      const monthIndex = monthNames.findIndex(m => monthName.startsWith(m));
+      
+      if (monthIndex !== -1) {
+        return `${monthIndex + 1}/${day}/${year}`;
+      }
+    }
     
     // Format: "May 29" -> Need to add year
     if (/^[A-Za-z]{3}\s\d{1,2}$/.test(dateString)) {
