@@ -69,32 +69,31 @@
   function extractTransactions() {
     const transactions = [];
     
-    // New structure uses role="group" divs for sections
-    const groups = document.querySelectorAll('div[role="list"] > div[role="group"]');
+    // New structure: h4 headings followed by role="list" divs
+    const headings = document.querySelectorAll('h4[id^="activity-list-group-title-"]');
     
-    // Iterate through each group
-    groups.forEach(group => {
-      // Get the heading to identify the group type
-      const headingElement = group.querySelector('div:first-child');
-      if (!headingElement) return;
-      
-      const heading = headingElement.textContent.trim();
+    // Iterate through each heading
+    headings.forEach(heading => {
+      const headingText = heading.textContent.trim();
       
       // Skip "Scheduled" transactions as per requirements
-      if (heading === "Scheduled") return;
+      if (headingText === "Scheduled") return;
       
       // Check if this is the "Pending" group
-      const isPendingGroup = heading === "Pending";
+      const isPendingGroup = headingText === "Pending";
       
-      // Extract the date from the heading if it's a date group (e.g., "November 22, 2025")
+      // Extract the date from the heading if it's a date group
       let groupDate = null;
-      if (!isPendingGroup && heading !== "Scheduled") {
-        // Try to parse as a date
-        groupDate = heading;
+      if (!isPendingGroup && headingText !== "Scheduled") {
+        groupDate = headingText;
       }
       
-      // Process all list items in the group
-      const items = group.querySelectorAll('div[role="listitem"]');
+      // Find the associated role="list" div
+      const listDiv = heading.parentElement.querySelector('div[role="list"]');
+      if (!listDiv) return;
+      
+      // Process all list items in the list
+      const items = listDiv.querySelectorAll('div[role="listitem"]');
       items.forEach(item => {
         const transaction = extractItemData(item, isPendingGroup, groupDate);
         if (transaction) {
@@ -109,59 +108,49 @@
   // Extract data from a single list item
   function extractItemData(item, isPendingGroup, groupDate) {
     try {
-      // The transaction details are likely in the button element
+      // The transaction details are in the button element
       const button = item.querySelector('button');
       if (!button) return null;
       
-      // Extract all text content from the button to parse
-      const buttonText = button.textContent || button.innerText || "";
-      
-      // Try to find description - look for text that isn't a date or amount
-      // This will need to be flexible based on the actual structure
       let description = "";
-      let dateText = groupDate || "";
+      let dateText = "";
       let amountText = "";
       
-      // Try multiple strategies to extract data from the button
-      // Strategy 1: Look for specific elements within the button
-      const descElements = button.querySelectorAll('div, span, p');
-      let amountCount = 0;
+      // New structure has two main divs in the button span:
+      // 1. First div (with class containing x1iyjqo2): description and account info
+      // 2. Second div (with class containing xpqajaz): amount and date
       
-      descElements.forEach(el => {
-        const text = el.textContent.trim();
-        
-        // Check if this looks like an amount (starts with $ or - or contains decimal)
-        if (/^[-$+]?\$?[\d,]+\.\d{2}$/.test(text) || /^-\$[\d,]+\.\d{2}$/.test(text) || /^\+\$[\d,]+\.\d{2}$/.test(text)) {
-          amountCount++;
-          // Only capture the FIRST amount (transaction amount)
-          // The second amount is always the account balance, so skip it
-          if (amountCount === 1 && !amountText) {
-            amountText = text;
-          }
-        }
-        // If it's not an amount and we don't have a description yet, it might be the description
-        else if (text && text.length > 2 && !description) {
-          // Avoid capturing dates and "balance" labels
-          if (!/^[A-Z][a-z]{2,8}\s+\d{1,2}(,\s+\d{4})?$/.test(text) && 
-              !text.toLowerCase().includes('balance')) {
-            description = text;
-          }
-        }
-      });
+      const spanWrapper = button.querySelector('span.x6s0dn4');
+      if (!spanWrapper) return null;
       
-      // Strategy 2: If we didn't find structured elements, parse the button text
-      if (!description && !amountText) {
-        // Split by lines or common separators
-        const lines = buttonText.split('\n').map(l => l.trim()).filter(l => l);
+      const divs = spanWrapper.querySelectorAll(':scope > div');
+      
+      if (divs.length >= 2) {
+        // First div: contains description and account info
+        const firstDiv = divs[0];
+        const firstDivSpans = firstDiv.querySelectorAll('span');
+        if (firstDivSpans.length > 0) {
+          description = firstDivSpans[0].textContent.trim();
+        }
         
-        for (let line of lines) {
-          // Check if line looks like an amount
-          if (/\$[\d,]+\.\d{2}/.test(line)) {
-            amountText = line.match(/[-$]?\$?[\d,]+\.\d{2}/)?.[0] || "";
+        // Second div: contains amount and date
+        const secondDiv = divs[1];
+        const secondDivSpans = secondDiv.querySelectorAll('span');
+        
+        // IMPORTANT: The order in the second div is:
+        // First span: transaction amount (e.g., "-$120.00")
+        // Second span: date (e.g., "January 6, 2026")
+        if (secondDivSpans.length >= 2) {
+          // Get amount from first span
+          const firstSpanText = secondDivSpans[0].textContent.trim();
+          if (/\$/.test(firstSpanText)) {
+            amountText = firstSpanText;
           }
-          // Otherwise might be description
-          else if (line.length > 2 && !description) {
-            description = line;
+          
+          // Get date from second span
+          const secondSpanText = secondDivSpans[1].textContent.trim();
+          if (/\d{4}/.test(secondSpanText) || /[A-Z][a-z]+/.test(secondSpanText)) {
+            dateText = secondSpanText;
           }
         }
       }
@@ -169,6 +158,11 @@
       // If we still don't have required data, return null
       if (!description && !amountText) {
         return null;
+      }
+      
+      // Use groupDate as fallback only if we don't have a dateText
+      if (!dateText) {
+        dateText = groupDate || "";
       }
       
       return {
