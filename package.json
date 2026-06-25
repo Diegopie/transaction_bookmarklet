@@ -4,7 +4,8 @@
   "description": "A JavaScript bookmarklet that extracts transaction data from bank statement pages and converts it to CSV format",
   "main": "build/bookmarklet.min.js",
   "scripts": {
-    "build": "node build/build.js"
+    "build": "node build/build.js",
+    "convert": "node convert.js"
   },
   "keywords": [
     "bookmarklet",
