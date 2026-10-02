@@ -1,232 +1,206 @@
-# Bank HTML to CSV Bookmarklet
+# Transaction Normalizer
 
-A JavaScript bookmarklet that extracts transaction data from bank statement pages and converts it to CSV format with customizable mappings for descriptions and categories.
+A Node.js CLI that reads raw CSV exports from banks and credit cards and normalizes
+them into one consistent format for our budget spreadsheet — cleaning up merchant
+descriptions, assigning categories, and putting every provider's amounts on the same
+sign convention.
 
-## Project Overview
+> This started as a browser bookmarklet that scraped the SoFi transactions page.
+> SoFi now offers a direct CSV download, so it was rewritten to read exports, then
+> generalized to support any provider. The original bookmarklet is kept for
+> reference (see [Legacy bookmarklet](#legacy-bookmarklet)).
 
-This project provides a modular, maintainable system for building a bank transaction extraction bookmarklet. It includes:
+## How it works
 
-- A structured, component-based code organization
-- Full JSDoc documentation
-- An automated build system
-- Customizable transaction categorization and description mapping
-
-## Directory Structure
+1. Drop each provider's CSV exports into its own folder under `data/`.
+2. Run the CLI and pick what to convert.
+3. Normalized CSVs land in `output/`.
 
 ```
-bank-transaction-bookmarklet/
-├── src/                  # Source code directory
-│   ├── bookmarklet.js    # Main entry point
-│   ├── components/       # Component modules
-│   │   ├── csv.js        # CSV generation functionality
-│   │   ├── extraction.js # HTML extraction functionality
-│   │   └── transformation.js # Data transformation
-│   └── utils/            # Utility modules
-│       ├── formatter.js  # Data formatting utilities
-│       └── mappings.js   # Description and category mappings
-├── build/                # Build output directory
-│   ├── bookmarklet.min.js # Minified JavaScript
-│   ├── bookmarklet.txt   # Bookmarklet code for direct use
-│   ├── build.js          # Build script
-│   └── template.html     # HTML template for bookmarklet page
-├── bookmarklet.html      # Generated HTML for installation
-├── package.json          # Project dependencies
-└── README.md             # This documentation file
+data/
+  sofi/   SOFI-JointChecking-2026-09-17.csv
+  amex/   activity.csv
+  citi/   ...
 ```
 
-## Installation Instructions
+```bash
+npm run convert              # interactive menu
+npm run convert:all          # one CSV per platform per month
+npm run convert:single       # all platforms merged, one CSV per month
+```
 
-### For End Users
+## CLI reference
 
-1. Open `bookmarklet.html` in your web browser
-2. Drag the blue "Bank HTML to CSV" button to your browser's bookmarks bar
-3. Navigate to your bank's transaction page
-4. Click the bookmarklet to extract transactions and download as CSV
+```
+node convert.js                     Interactive menu
+node convert.js --all               Every platform, its own CSV per month
+node convert.js --all --single      All platforms merged, one CSV per month
+node convert.js --provider sofi     Just one account
+node convert.js --list              Show detected accounts and exit
+node convert.js --report json       Also write output/report.json
+node convert.js --help
+```
 
-If your bookmarks bar is hidden:
-- Chrome/Edge: Press `Ctrl+Shift+B` (Windows) or `Command+Shift+B` (Mac)
-- Firefox: Right-click on the toolbar and select "Bookmarks Toolbar"
-- Safari: Select View > Show Favorites Bar
+Bare `node convert.js` prompts interactively — good for running by hand. The flags
+give the same behavior deterministically, which is what scripts and the Claude skill
+should use.
 
-### For Developers
+## Output layout
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Make changes to files in the `src` directory
-4. Run the build script: `npm run build` or `node build/build.js`
-5. Open `bookmarklet.html` to test your changes
+Output is **always split into one CSV per calendar month**, matching the monthly
+layout of the budget spreadsheet.
 
-## Features
+| Mode | Files |
+|---|---|
+| Default | One set per **platform**: `sofi-2026-07.csv`, `amex-2026-07.csv`, ... |
+| `--single` | Everything merged: `combined-2026-07.csv`, ... |
+| `--by-account` | One set per account: `sofi-checking-2026-07.csv`, `sofi-savings-2026-07.csv` |
+| `--no-split` | One file for the whole date range instead of per month |
 
-- Extracts transactions from the bank's HTML page
-- Ignores "Scheduled Transactions" table
-- Marks transactions from "Pending Transactions" table with "Pending" category
-- Transforms descriptions and assigns categories based on keywords
-- Inverts transaction amounts (expenses become positive, deposits become negative)
-- Downloads data as a CSV file
-- Modular code structure for easy maintenance
-- Full JSDoc documentation
-- Automated build system
+Accounts that share a `platform` (SoFi checking and savings) land in the **same**
+file by default, told apart by the `Account` column (`Sofi` vs `Sofi Savings`). Use
+`--single` to get one sheet per month covering every platform at once.
 
-## CSV Format
+## Output format
 
-The CSV has the following columns:
-1. **Description** - Transformed from the original description
-2. **Account** - Always "Sofi"
-3. **Date** - In M/D/YYYY format
-4. **Category** - Based on description keywords or "Pending" for pending transactions
-5. **Amount** - Inverted from original (negative becomes positive, positive becomes negative)
+Five columns, pasted straight into the budget spreadsheet:
 
-## Code Organization
+| # | Column | Notes |
+|---|-------------|-------|
+| 1 | Description | Cleaned via keyword mapping (`AMAZON MKTPLACE PMTS` -> `Amazon`) |
+| 2 | Account | The provider's label (e.g. `Sofi`) |
+| 3 | Date | `M/D/YYYY` |
+| 4 | Category | From keyword mapping; `Pending` if the row's status is pending; blank if no match |
+| 5 | Amount | **Expenses positive, deposits negative** |
 
-The project is organized into modular components:
+Rows are ordered oldest-first.
 
-### Main File
-- `src/bookmarklet.js`: Entry point that imports all other modules
+## Adding a provider
 
-### Components
-- `src/components/extraction.js`: Functions to extract transaction data from HTML
-- `src/components/transformation.js`: Functions to transform raw data into required format
-- `src/components/csv.js`: Functions to generate and download CSV data
-
-### Utilities
-- `src/utils/mappings.js`: Keyword mappings for descriptions and categories
-- `src/utils/formatter.js`: Formatting functions for dates, amounts, and descriptions
-
-## Customization
-
-To customize the description and category mappings:
-
-1. Edit the `descriptionKeywords` and `categoryKeywords` objects in `src/utils/mappings.js`
-2. Add new mappings as needed
-3. Run the build script: `npm run build`
-4. Update the bookmarklet in your browser
-
-### Description Keywords
-
-These map keywords in the original bank description to cleaner descriptions:
+Create `lib/providers/<key>.js` and register it in `lib/providers/index.js`. Nothing
+else changes — the rest of the pipeline is provider-agnostic.
 
 ```javascript
-const descriptionKeywords = {
-  "Roundup": "Roundup",
-  "AMAZON": "Amazon",
-  "AMZN": "Amazon",
-  // Add more as needed
+module.exports = {
+  key: 'amex',                 // folder name under data/ and --provider value
+  displayName: 'American Express',
+  label: 'Amex',               // goes in the Account column
+  platform: 'amex',            // output grouping — shared key = shared CSV
+  requiredHeaders: ['Date', 'Description', 'Amount'],
+  columns: {
+    date: 'Date', description: 'Description',
+    amount: 'Amount', status: 'Status', balance: null,
+  },
+  dateFormat: 'us',            // 'iso' | 'us' | 'auto'
+  outflowSign: 'positive',     // see below
+  newestFirst: true,
+
+  // Optional:
+  aliases: ['americanexpress'],        // extra accepted folder names
+  filePatterns: ['amex', 'activity'],  // route by filename, see below
+  includeOnlyDescriptions: [],         // keep ONLY matching rows
 };
 ```
 
-### Category Keywords
+### Multiple accounts on one platform
 
-These map keywords in the description to predefined categories:
+SoFi has checking and savings, each its own adapter (`sofi-checking.js`,
+`sofi-savings.js`) sharing `platform: 'sofi'` and a common schema in `sofi-base.js`.
+They land in one `sofi-*.csv` by default, distinguished by the `Account` column.
+
+### `filePatterns` — routing by filename
+
+Banks name exports after the account (`SOFI-JointChecking-....csv` vs
+`SOFI-JointSavings-....csv`). A file whose name matches an adapter's `filePatterns`
+is routed to that adapter **regardless of which folder it sits in**, so you can drop
+every export from one bank into a single folder. The run reports any reroute.
+
+### `includeOnlyDescriptions` — filtering a noisy account
+
+When set, only rows whose description contains one of these strings are kept.
+`sofi-savings` uses it to keep just the payroll deposits and drop interest and
+internal transfers — those transfers would otherwise double-count against the
+matching `From Savings` rows in checking. Dropped rows are counted in the run
+summary so nothing disappears silently.
+
+### `outflowSign` — the important one
+
+Banks and cards disagree about what a negative number means:
+
+- **Bank/checking exports** (SoFi): withdrawals are **negative** -> `outflowSign: 'negative'`
+- **Credit-card exports** (typical): a charge is a **positive** number -> `outflowSign: 'positive'`
+
+Each adapter normalizes to one internal convention (*negative = money leaving the
+account*), and the output formatter flips it once at the end. Get this wrong and a
+whole statement comes out backwards, so check a known charge after adding a provider.
+
+### `requiredHeaders`
+
+Acts as a safety net: if a CSV in `data/amex/` doesn't have these columns, the run
+fails with a clear message instead of silently producing garbage. It also catches
+banks changing their export format.
+
+## Customizing categories & descriptions
+
+All mapping logic lives in **`lib/mappings.js`** — one shared table across every
+provider, since merchants are the same wherever they're charged.
+
+- `descriptionKeywords` — keyword -> cleaner display name
+- `categoryKeywords` — keyword -> category (must be in `allowedCategories`, else ignored)
+- `allowedCategories` — the whitelist of category names
+
+Matching is **case-insensitive** and **first-match-wins in insertion order**, so list
+specific keywords before general ones:
 
 ```javascript
 const categoryKeywords = {
-  "COSTCO": "Groceries",
-  "WALMART": "Groceries",
-  "AMAZON": "Shopping",
-  // Add more as needed
+  "COSTCO GAS": "Transportation", // specific — first
+  "COSTCO": "Groceries",          // general — after
 };
 ```
 
-### Allowed Categories
+Watch for punctuation: `WENDYS` will not match `WENDY'S`, and `WALMART` will not
+match `WAL-MART`. Prefer the shortest distinctive stem (`WENDY`) or add both spellings.
 
-The following categories are allowed:
-- Income
-- Other
-- Bills
-- Debt
-- Business
-- Freelance
-- Membership
-- Subscription
-- Snacks
-- Coffee
-- Food
-- Entertainment
-- Groceries
-- Transportation
-- Misc
-- Transfer
-- Savings
-- Pending
+After editing, re-run the CLI. Categorization is fully deterministic — the same input
+always produces the same output.
 
-## Build System
+## Project structure
 
-The project includes an automated build system that handles:
-
-1. **Code Combination**: Imports all modules into a single file
-2. **Minification**: Reduces file size by removing whitespace and shortening variable names
-3. **Bookmarklet Formatting**: Encodes the code for use as a browser bookmark
-4. **HTML Generation**: Creates an installation page with the bookmarklet
-
-### Build Process
-
-When you run `npm run build` or `node build/build.js`:
-
-1. The build script reads the main file (`src/bookmarklet.js`)
-2. It processes `@import` statements to include other modules
-3. It minifies the combined code using UglifyJS
-4. It generates:
-   - `build/bookmarklet.min.js`: Minified JavaScript code
-   - `build/bookmarklet.txt`: Bookmarklet-formatted code
-   - `bookmarklet.html`: HTML page for installation
-
-### Customizing the Build
-
-You can modify:
-- `build/template.html`: The HTML template for the installation page
-- `build/build.js`: The build script itself to add more features
-
-## Development Guide
-
-### JSDoc Documentation
-
-The project uses JSDoc comments to provide documentation and type information:
-
-```javascript
-/**
- * Extracts data from a single table row
- * @param {HTMLElement} row - Table row DOM element
- * @param {boolean} isPendingTable - Whether this row is from the Pending table
- * @returns {Object|null} - Transaction object or null if extraction failed
- */
-function extractRowData(row, isPendingTable) {
-  // Function implementation
-}
+```
+convert.js                 # CLI entry point
+lib/
+  providers/
+    index.js               # registry — add new accounts here
+    sofi-base.js           # shared SoFi CSV schema
+    sofi-checking.js       # SoFi checking
+    sofi-savings.js        # SoFi savings (payroll only)
+  pipeline.js              # discovery, routing, reading, de-dup, grouping
+  transform.js             # date/amount/description/category transforms
+  mappings.js              # keyword tables (edit this)
+  csv.js                   # dependency-free CSV parse/serialize
+data/<platform>/           # raw exports (git-ignored)
+output/                    # generated CSVs (+ optional report.json)
+.claude/skills/            # skill that drives this CLI
+original/ src/ build/      # legacy bookmarklet (reference only)
 ```
 
-When adding or modifying code, please maintain the JSDoc documentation to keep the code readable and maintainable.
+## Requirements
 
-### Adding a New Feature
+Node.js (developed on v24 via nvm-windows). No runtime dependencies — the CSV parser
+is self-contained.
 
-1. Identify which component should contain the feature
-2. Add the necessary code to the appropriate file with JSDoc comments
-3. If needed, add new utility functions to formatter.js
-4. Run the build script to update the bookmarklet
+## Gotchas
 
-### Modifying HTML Parsing
+- **Close the output CSV in Excel before running.** Windows locks open files; the CLI
+  reports this clearly instead of failing cryptically.
+- `data/` is git-ignored, so real transaction exports are never committed.
+- Loose CSVs placed directly in `data/` are ignored — they must live in a provider
+  folder.
 
-If the bank's HTML structure changes:
+## Legacy bookmarklet
 
-1. Update the selectors in `src/components/extraction.js`
-2. Adjust the extraction logic as needed
-3. Test with sample HTML data
-4. Rebuild the bookmarklet
-
-## Troubleshooting
-
-If the bookmarklet doesn't work:
-
-- Make sure you're on your bank's transaction page
-- Check the browser console (F12) for any error messages
-- Some banks use security measures that might block bookmarklets
-- The HTML structure of the bank's page might have changed, requiring updates to the selectors
-- Ensure your browser supports bookmarklets (most do)
-
-## License
-
-This project is created for personal use.
-
-## Contributing
-
-This is a personal project, but suggestions for improvements are welcome.
+The original browser-bookmarklet implementation is preserved but no longer used:
+`original/bookmarklet.js` (last working DOM version), `src/` (modular refactor), and
+`build/build.js` (`npm run build` bundles it into a `javascript:` bookmarklet). Use
+the CLI above unless you specifically need the in-browser version.
